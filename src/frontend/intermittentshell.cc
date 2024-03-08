@@ -15,7 +15,7 @@ using namespace std;
 
 void usage( const string & program_name )
 {
-    throw runtime_error( "Usage: " + program_name + " uplink|downlink MEAN-ON-TIME MEAN-OFF-TIME [COMMAND...]" );
+    throw runtime_error( "Usage: " + program_name + " uplink|downlink ON-TIME OFF-TIME [COMMAND...]" );
 }
 
 int main( int argc, char *argv[] )
@@ -37,7 +37,7 @@ int main( int argc, char *argv[] )
         if ( (0 <= on_time) ) {
             /* do nothing */
         } else {
-            cerr << "Error: mean on-time must be more than 0 seconds." << endl;
+            cerr << "Error: on-time must be more than 0 seconds." << endl;
             usage( argv[ 0 ] );
         }
 
@@ -45,12 +45,12 @@ int main( int argc, char *argv[] )
         if ( (0 <= off_time) ) {
             /* do nothing */
         } else {
-            cerr << "Error: mean off-time must be more than 0 seconds." << endl;
+            cerr << "Error: off-time must be more than 0 seconds." << endl;
             usage( argv[ 0 ] );
         }
 
         if ( on_time == 0 and off_time == 0 ) {
-            cerr << "Error: mean on-time and off-time cannot both be 0 seconds." << endl;
+            cerr << "Error: on-time and off-time cannot both be 0 seconds." << endl;
             usage( argv[ 0 ] );
         }
 
@@ -78,9 +78,9 @@ int main( int argc, char *argv[] )
             }
         }
 
-        PacketShell<StochasticSwitchingLink> onoff_app( "onoff", user_environment, passthrough_until_signal );
+        PacketShell<PeriodicSwitchingLink> onoff_app( "intermittent", user_environment, passthrough_until_signal );
 
-        string shell_prefix = "[onoff ";
+        string shell_prefix = "[intermittent ";
         if ( link == "uplink" ) {
             shell_prefix += "(up) on=";
         } else {

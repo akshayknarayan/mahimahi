@@ -120,6 +120,14 @@ void LinkQueue::record_arrival( const uint64_t arrival_time, const size_t pkt_si
     }
 }
 
+void LinkQueue::record_drop( const uint64_t time, const size_t pkts_dropped, const size_t bytes_dropped)
+{
+    /* log it */
+    if ( log_ ) {
+        *log_ << time << " d " << pkts_dropped << " " << bytes_dropped << endl;
+    }
+}
+
 void LinkQueue::record_departure_opportunity( void )
 {
     /* log the delivery opportunity */ 
@@ -172,18 +180,29 @@ void LinkQueue::read_packet( const string & contents )
 
     rationalize( now );
 
-		uint16_t src = 0,
-						 dst = 0;
-		unsigned int queue_bytes = 0,
-								 queue_packets = 0;
-		if ( log_ ) {
-			_parse_ports((const unsigned char *) contents.substr(24,4).c_str(), &src, &dst);
-			//queue_bytes = packet_queue_->size_bytes();
-			//queue_packets = packet_queue_->size_packets();
-		}
+    uint16_t src = 0, dst = 0;
+    unsigned int queue_bytes = 0,
+                 queue_packets = 0;
+    if ( log_ ) {
+        _parse_ports((const unsigned char *) contents.substr(24,4).c_str(), &src, &dst);
+        //queue_bytes = packet_queue_->size_bytes();
+        //queue_packets = packet_queue_->size_packets();
+    }
     record_arrival( now, contents.size(), src, dst, queue_bytes, queue_packets );
 
+    unsigned int bytes_before = packet_queue_->size_bytes();
+    unsigned int packets_before = packet_queue_->size_packets();
+
     packet_queue_->enqueue( QueuedPacket( contents, now ) );
+
+    assert( packet_queue_->size_packets() <= packets_before + 1 );
+    assert( packet_queue_->size_bytes() <= bytes_before + contents.size() );
+    
+    unsigned int missing_packets = packets_before + 1 - packet_queue_->size_packets();
+    unsigned int missing_bytes = bytes_before + contents.size() - packet_queue_->size_bytes();
+    if ( missing_packets > 0 || missing_bytes > 0 ) {
+        record_drop( now, missing_packets, missing_bytes );
+    }
 }
 
 uint64_t LinkQueue::next_delivery_time( void ) const

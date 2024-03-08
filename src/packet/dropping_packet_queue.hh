@@ -41,15 +41,14 @@ public:
 
     bool empty( void ) const override;
 
-    unsigned int size_bytes( void ) const override;
-    unsigned int size_packets( void ) const override;
-
     void set_bdp( int bytes ) override;
 
     std::string to_string( void ) const override;
 
     static unsigned int get_arg( const std::string & args, const std::string & name );
 
+    unsigned int size_bytes( void ) const override;
+    unsigned int size_packets( void ) const override;
 };
 
 #endif /* DROPPING_PACKET_QUEUE_HH */ 
