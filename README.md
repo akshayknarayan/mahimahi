@@ -12,6 +12,12 @@ sudo apt-get install autotools-dev autoconf libtool apache2 apache2-dev protobuf
 ./autogen.sh && ./configure && make && sudo make install
 ```
 
+Note: mahimahi will conflict with tailscale if it is installed, because tailscale uses the same CG-NAT address space of `100.64.0.0`. This fork includes the configure flag `--enable-altaddr=yes`, which will use the `10.0.0.0` address space instead. To use:
+
+```
+./configure --enable-altaddr=yes
+```
+
 # Experimental features in this fork
 
 1. mm-link reports the BDP in bytes and packets on startup when a delayshell is
