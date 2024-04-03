@@ -51,6 +51,14 @@ AC_PATH_PROG([PROTOC], [protoc], [])
 AS_IF([test x"$PROTOC" = x],
   [AC_MSG_ERROR([cannot find protoc, the Protocol Buffers compiler])])
 
+AC_PATH_PROG([CXXBRIDGE], [cxxbridge], [])
+AS_IF([test x"$CXXBRIDGE" = x],
+  [AC_MSG_ERROR([cannot find cxxbridge, the Rust-C++ FFI tool])])
+
+AC_PATH_PROG([CARGO], [cargo], [])
+AS_IF([test x"$CARGO" = x],
+  [AC_MSG_ERROR([cannot find cargo, the Rust build system])])
+
 AC_PATH_PROG([APXS], [apxs], [])
 AS_IF([test x"$APXS" = x],
   [AC_MSG_ERROR([cannot find apxs, the Apache extension tool])])

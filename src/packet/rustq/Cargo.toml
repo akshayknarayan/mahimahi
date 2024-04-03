@@ -1,0 +1,13 @@
+[package]
+name = "rustq"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+cxx = "1.0"
+hwfq = { git = "https://github.com/akshayknarayan/hwfq", rev = "77186a7", features = ["htb-argparse"] }
+tracing-subscriber = "0.3"
+tracing = "0.1"
