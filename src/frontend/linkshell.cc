@@ -1,6 +1,7 @@
 /* -*-mode:c++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 
 #include <getopt.h>
+#include <string.h>
 
 #include "infinite_packet_queue.hh"
 #include "drop_tail_packet_queue.hh"
@@ -9,6 +10,7 @@
 #include "pie_packet_queue.hh"
 #include "ecmp_packet_queue.hh"
 #include "fair_packet_queue.hh"
+#include "rust_packet_queue.hh"
 #include "link_queue.hh"
 #include "packetshell.cc"
 #include "util.hh"
@@ -45,7 +47,7 @@ void usage_error( const string & program_name )
     throw runtime_error( "invalid arguments" );
 }
 
-unique_ptr<AbstractPacketQueue> get_packet_queue( const string & type, const string & args, const string & program_name )
+unique_ptr<AbstractPacketQueue> get_packet_queue( string & type, const string & args, const string & program_name )
 {
     if ( type == "infinite" ) {
         return unique_ptr<AbstractPacketQueue>( new InfinitePacketQueue( args ) );
@@ -61,6 +63,9 @@ unique_ptr<AbstractPacketQueue> get_packet_queue( const string & type, const str
         return unique_ptr<AbstractPacketQueue>( new ECMPPacketQueue( args ) );
     } else if ( type == "akshayfq" ) {
         return unique_ptr<AbstractPacketQueue>( new FairPacketQueue( args ) );
+    } else if ( type.rfind("rust_", 0) == 0 ) {
+        type.erase(0, 5);
+        return unique_ptr<AbstractPacketQueue>( new RustPacketQueue( type, args ) );
     } else {
         cerr << "Unknown queue type: " << type << endl;
     }

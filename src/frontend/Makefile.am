@@ -23,7 +23,7 @@ mm_intermittent_LDFLAGS = -pthread
 
 bin_PROGRAMS += mm-link
 mm_link_SOURCES = linkshell.cc link_queue.hh link_queue.cc
-mm_link_LDADD = -lrt ../util/libutil.a ../packet/libpacket.a ../graphing/libgraph.a $(XCBPRESENT_LIBS) $(XCB_LIBS) $(PANGOCAIRO_LIBS)
+mm_link_LDADD = -lrt ../util/libutil.a ../packet/libpacket.a ../packet/rustq/target/release/librustq.a ../graphing/libgraph.a $(XCBPRESENT_LIBS) $(XCB_LIBS) $(PANGOCAIRO_LIBS)
 mm_link_LDFLAGS = -pthread
 
 bin_PROGRAMS += mm-meter

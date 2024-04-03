@@ -12,7 +12,7 @@ AC_CONFIG_MACRO_DIR([m4])
 
 # Add picky CXXFLAGS
 CXX11_FLAGS="-std=c++11 -pthread"
-PICKY_CXXFLAGS="-pedantic -Wall -Wextra -Weffc++ -Werror"
+PICKY_CXXFLAGS="-pedantic -Wall -Wextra -Werror"
 AC_SUBST([CXX11_FLAGS])
 AC_SUBST([PICKY_CXXFLAGS])
 
@@ -50,6 +50,14 @@ AC_DEFINE_UNQUOTED([DNSMASQ], ["$DNSMASQ"], [path to dnsmasq])
 AC_PATH_PROG([PROTOC], [protoc], [])
 AS_IF([test x"$PROTOC" = x],
   [AC_MSG_ERROR([cannot find protoc, the Protocol Buffers compiler])])
+
+AC_PATH_PROG([CXXBRIDGE], [cxxbridge], [])
+AS_IF([test x"$CXXBRIDGE" = x],
+  [AC_MSG_ERROR([cannot find cxxbridge, the Rust-C++ FFI tool])])
+
+AC_PATH_PROG([CARGO], [cargo], [])
+AS_IF([test x"$CARGO" = x],
+  [AC_MSG_ERROR([cannot find cargo, the Rust build system])])
 
 AC_PATH_PROG([APXS], [apxs], [])
 AS_IF([test x"$APXS" = x],
