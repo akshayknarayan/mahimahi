@@ -9,7 +9,13 @@ RustPacketQueue::RustPacketQueue( const std::string & type_, const std::string &
 
 void RustPacketQueue::enqueue( QueuedPacket && p) {
     // need to translate from QueuedPacket to MahimahiQueuedPacket
-    auto mm_qp = MahimahiQueuedPacket { .arrival_time = p.arrival_time, .payload = make_rust_vec(p.contents) };
+    uint32_t tun_header = *((uint32_t*) p.contents.substr(0, 4).data());
+    auto contents = p.contents.erase(0, 4);
+    auto mm_qp = MahimahiQueuedPacket {
+        .arrival_time = p.arrival_time,
+        .tun_header = tun_header,
+        .payload = make_rust_vec(contents),
+    };
     inner_->enqueue(mm_qp);
 }
 
@@ -19,6 +25,9 @@ QueuedPacket RustPacketQueue::dequeue(void) {
     auto mm_qp = inner_->dequeue();
     std::string cont;
     make_cxx_string(mm_qp.payload, cont);
+
+    char *s = (char*) &mm_qp.tun_header;
+    cont.insert(0, s, 4);
     return QueuedPacket(cont, mm_qp.arrival_time);
 }
 

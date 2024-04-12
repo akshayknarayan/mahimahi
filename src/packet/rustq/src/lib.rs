@@ -5,6 +5,7 @@ use std::{collections::VecDeque, pin::Pin};
 mod ffi {
     struct MahimahiQueuedPacket {
         arrival_time: u64,
+        tun_header: u32,
         payload: Vec<u8>,
     }
 
@@ -51,7 +52,10 @@ pub enum WrapperPacketQueueInner {
 }
 
 pub fn make_rust_queue(name: String, args: String) -> Result<Box<WrapperPacketQueue>, String> {
-    println!("making rust queue with name {}, args: ({})", name, args);
+    tracing_subscriber::fmt()
+        .try_init()
+        .map_err(|e| e.to_string())?;
+    tracing::info!(?name, ?args, "making rust queue");
     Ok(Box::new(WrapperPacketQueue {
         bypass: Default::default(),
         inner: WrapperPacketQueueInner::ClassTokenBucket(ClassTokenBucket::new(args)?),
@@ -59,28 +63,42 @@ pub fn make_rust_queue(name: String, args: String) -> Result<Box<WrapperPacketQu
 }
 
 use ffi::MahimahiQueuedPacket;
+const U64_SIZE: usize = u64::BITS as usize / 8;
+const U32_SIZE: usize = u32::BITS as usize / 8;
 
 impl WrapperPacketQueue {
     pub fn enqueue(
         &mut self,
         MahimahiQueuedPacket {
             arrival_time,
+            tun_header,
             payload,
         }: MahimahiQueuedPacket,
     ) -> Result<(), String> {
-        match payload.try_into() {
+        match Pkt::parse_ip(payload) {
             Ok(p) => {
                 let mut p: Pkt = p;
                 p.buf_mut().extend(arrival_time.to_le_bytes());
-                match &mut self.inner {
-                    WrapperPacketQueueInner::ClassTokenBucket(q) => {
-                        q.0.enq(p).map_err(|x| x.to_string())?
-                    }
+                p.buf_mut().extend(tun_header.to_le_bytes());
+                tracing::trace!(dport = ?p.dport(), "enqueueing packet");
+                match match &mut self.inner {
+                    WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.enq(p),
+                } {
+                    Ok(_) => (),
+                    Err(e) => match e.downcast() {
+                        Ok(p @ hwfq::Error::PacketDropped(_)) => {
+                            tracing::debug!(?p, "packet dropped");
+                        }
+                        Ok(e) => return Err(e.to_string()),
+                        Err(e) => return Err(e.to_string()),
+                    },
                 }
             }
-            Err((payload, _err)) => {
+            Err((payload, err)) => {
+                tracing::trace!(?err, "enqueueing bypass packet");
                 self.bypass.push_back(MahimahiQueuedPacket {
                     arrival_time,
+                    tun_header,
                     payload,
                 });
             }
@@ -102,15 +120,17 @@ impl WrapperPacketQueue {
         };
 
         let len = p.len();
-        const SIZE: usize = u64::BITS as usize / 8;
-        let idx = len - SIZE;
+        let idx = len - U32_SIZE - U64_SIZE;
         let payload = p.buf_mut();
 
-        let arrival_time = u64::from_le_bytes(payload[idx..].try_into().unwrap());
+        let arrival_time = u64::from_le_bytes(payload[idx..idx + U64_SIZE].try_into().unwrap());
+        let tun_header = u32::from_le_bytes(payload[idx + U64_SIZE..].try_into().unwrap());
+
         payload.truncate(idx);
 
         Ok(MahimahiQueuedPacket {
             arrival_time,
+            tun_header,
             payload: std::mem::take(p.buf_mut()),
         })
     }
@@ -129,9 +149,12 @@ impl WrapperPacketQueue {
     }
 
     pub fn qsize_bytes(&self) -> usize {
-        match &self.inner {
+        // we stuff in an extra u64 + u32 into the payload per packet, so need to subtract that out.
+        let size_pkts = self.qsize_packets();
+        let overhead = size_pkts * (U64_SIZE + U32_SIZE);
+        (match &self.inner {
             WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.tot_len_bytes(),
-        }
+        }) - overhead
     }
 
     pub fn qsize_packets(&self) -> usize {
@@ -152,7 +175,7 @@ impl WrapperPacketQueue {
 use hwfq::{scheduler::htb::ClassedTokenBucket, Pkt, Scheduler};
 
 #[derive(Debug)]
-pub struct ClassTokenBucket(ClassedTokenBucket);
+pub struct ClassTokenBucket(ClassedTokenBucket<std::fs::File>);
 
 impl ClassTokenBucket {
     pub fn new(args: String) -> Result<Self, String> {
