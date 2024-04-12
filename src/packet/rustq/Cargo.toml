@@ -9,3 +9,5 @@ crate-type = ["staticlib"]
 [dependencies]
 cxx = "1.0"
 hwfq = { path = "/mnt/scratch/hwfq", features = ["htb-argparse"] }
+tracing-subscriber = "0.3"
+tracing = "0.1"
