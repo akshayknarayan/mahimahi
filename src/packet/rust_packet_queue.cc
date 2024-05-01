@@ -8,7 +8,9 @@ RustPacketQueue::RustPacketQueue( const std::string & type_, const std::string &
 }
 
 void RustPacketQueue::enqueue( QueuedPacket && p) {
-    // need to translate from QueuedPacket to MahimahiQueuedPacket
+    // need to translate from QueuedPacket to MahimahiQueuedPacket.
+    // we do this by stripping off the 4-byte TUN header and saving
+    // it separately, so that the packet parses as ipv4.
     uint32_t tun_header = *((uint32_t*) p.contents.substr(0, 4).data());
     auto contents = p.contents.erase(0, 4);
     auto mm_qp = MahimahiQueuedPacket {
@@ -26,6 +28,7 @@ QueuedPacket RustPacketQueue::dequeue(void) {
     std::string cont;
     make_cxx_string(mm_qp.payload, cont);
 
+    // put the tun header back.
     char *s = (char*) &mm_qp.tun_header;
     cont.insert(0, s, 4);
     return QueuedPacket(cont, mm_qp.arrival_time);

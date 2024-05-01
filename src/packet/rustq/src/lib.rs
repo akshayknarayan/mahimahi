@@ -42,6 +42,7 @@ pub fn make_cxx_string(x: Vec<u8>, mut out: Pin<&mut CxxString>) {
     out.push_bytes(&x[..]);
 }
 
+// we cannot have a generic type parameter on this type due to CXX
 pub struct WrapperPacketQueue {
     bypass: VecDeque<MahimahiQueuedPacket>,
     inner: WrapperPacketQueueInner,
@@ -51,11 +52,17 @@ pub enum WrapperPacketQueueInner {
     ClassTokenBucket(ClassTokenBucket),
 }
 
+// returning Err(_) from this function (and any function below) will throw an exception in C++ land.
 pub fn make_rust_queue(name: String, args: String) -> Result<Box<WrapperPacketQueue>, String> {
-    tracing_subscriber::fmt()
-        .try_init()
-        .map_err(|e| e.to_string())?;
+    if let Err(e) = tracing_subscriber::fmt().try_init() {
+        println!("rust_queue: could not initialize tracing: {}", e);
+    }
+
     tracing::info!(?name, ?args, "making rust queue");
+    if name != "ctb" {
+        return Err("Only ctb (ClassTokenBucket) supported in Rust".to_owned());
+    }
+
     Ok(Box::new(WrapperPacketQueue {
         bypass: Default::default(),
         inner: WrapperPacketQueueInner::ClassTokenBucket(ClassTokenBucket::new(args)?),
