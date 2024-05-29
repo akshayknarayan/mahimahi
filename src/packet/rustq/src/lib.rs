@@ -50,6 +50,7 @@ pub struct WrapperPacketQueue {
 
 pub enum WrapperPacketQueueInner {
     ClassTokenBucket(ClassTokenBucket),
+    DeficitRoundRobin(DeficitRoundRobin),
 }
 
 // returning Err(_) from this function (and any function below) will throw an exception in C++ land.
@@ -59,13 +60,18 @@ pub fn make_rust_queue(name: String, args: String) -> Result<Box<WrapperPacketQu
     }
 
     tracing::info!(?name, ?args, "making rust queue");
-    if name != "ctb" {
-        return Err("Only ctb (ClassTokenBucket) supported in Rust".to_owned());
-    }
-
     Ok(Box::new(WrapperPacketQueue {
         bypass: Default::default(),
-        inner: WrapperPacketQueueInner::ClassTokenBucket(ClassTokenBucket::new(args)?),
+        inner: match name.as_str() {
+            "ctb" => WrapperPacketQueueInner::ClassTokenBucket(ClassTokenBucket::new(args)?),
+            "drr" => WrapperPacketQueueInner::DeficitRoundRobin(DeficitRoundRobin::new(args)?),
+            _ => {
+                return Err(
+                    "Only ctb (ClassTokenBucket) and drr (DeficitRoundRobin) supported in Rust"
+                        .to_owned(),
+                )
+            }
+        },
     }))
 }
 
@@ -90,6 +96,7 @@ impl WrapperPacketQueue {
                 tracing::trace!(dport = ?p.dport(), "enqueueing packet");
                 match match &mut self.inner {
                     WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.enq(p),
+                    WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.enq(p),
                 } {
                     Ok(_) => (),
                     Err(e) => match e.downcast() {
@@ -124,6 +131,9 @@ impl WrapperPacketQueue {
             WrapperPacketQueueInner::ClassTokenBucket(q) => {
                 q.0.deq().map_err(|x| x.to_string())?.unwrap()
             }
+            WrapperPacketQueueInner::DeficitRoundRobin(q) => {
+                q.0.deq().map_err(|x| x.to_string())?.unwrap()
+            }
         };
 
         let len = p.len();
@@ -146,13 +156,16 @@ impl WrapperPacketQueue {
         self.bypass.is_empty()
             && match &self.inner {
                 WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.is_empty(),
+                WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.is_empty(),
             }
     }
 
     pub fn set_bdp(&mut self, bytes: usize) {
         match &mut self.inner {
             WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.set_max_len_bytes(bytes),
+            WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.set_max_len_bytes(bytes),
         }
+        .unwrap();
     }
 
     pub fn qsize_bytes(&self) -> usize {
@@ -160,26 +173,56 @@ impl WrapperPacketQueue {
         let size_pkts = self.qsize_packets();
         let overhead = size_pkts * (U64_SIZE + U32_SIZE);
         (match &self.inner {
-            WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.tot_len_bytes(),
+            WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.len_bytes(),
+            WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.len_bytes(),
         }) - overhead
     }
 
     pub fn qsize_packets(&self) -> usize {
         match &self.inner {
-            WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.tot_len_pkts(),
+            WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.len_packets(),
+            WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.len_packets(),
         }
     }
 
     pub fn to_string(&self, out: Pin<&mut CxxString>) {
         let s = match &self.inner {
             WrapperPacketQueueInner::ClassTokenBucket(q) => format!("{:?}", q),
+            WrapperPacketQueueInner::DeficitRoundRobin(q) => format!("{:?}", q),
         };
 
         out.push_str(&s);
     }
 }
 
-use hwfq::{scheduler::htb::ClassedTokenBucket, Pkt, Scheduler};
+use hwfq::{scheduler::htb::ClassedTokenBucket, scheduler::Drr, Pkt, Scheduler};
+
+pub struct DeficitRoundRobin(Drr<true>);
+
+impl std::fmt::Debug for DeficitRoundRobin {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        f.debug_tuple("DeficitRoundRobin").finish()
+    }
+}
+
+impl DeficitRoundRobin {
+    pub fn new(args: String) -> Result<Self, String> {
+        const ERR_STR: &str = "Drr takes a single size argument in bytes: --limit-bytes={value}";
+        let stripped: String = args.chars().skip_while(|x| *x == '-').collect();
+        let mut split = stripped.split(&['=']);
+        match split.next() {
+            Some(key) if key.contains("limit-bytes") => (),
+            None | Some(_) => return Err(ERR_STR.to_string()),
+        }
+
+        let limit_bytes: usize = split
+            .next()
+            .ok_or_else(|| ERR_STR.to_string())?
+            .parse()
+            .map_err(|e| format!("{}: error parsing value as usize: {}", ERR_STR, e))?;
+        Ok(DeficitRoundRobin(Drr::<true>::new(limit_bytes)))
+    }
+}
 
 #[derive(Debug)]
 pub struct ClassTokenBucket(ClassedTokenBucket<std::fs::File>);
