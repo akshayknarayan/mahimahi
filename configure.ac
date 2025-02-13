@@ -11,9 +11,9 @@ LT_INIT
 AC_CONFIG_MACRO_DIR([m4])
 
 # Add picky CXXFLAGS
-CXX11_FLAGS="-std=c++11 -pthread"
+CXX17_FLAGS="-std=c++17 -pthread"
 PICKY_CXXFLAGS="-pedantic -Wall -Wextra -Weffc++ -Werror"
-AC_SUBST([CXX11_FLAGS])
+AC_SUBST([CXX17_FLAGS])
 AC_SUBST([PICKY_CXXFLAGS])
 
 # Checks for programs.
