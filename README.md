@@ -21,6 +21,10 @@ On Ubuntu (at least), you need the following packages to install mahimahi:
  * libxcb-present-dev
  * libpangomm-2.48-dev
 
+```
+cargo install cxxbridge-cmd
+```
+
 ### Install
 
 Once all dependencies are met, you can install mahimahi by running:
