@@ -209,9 +209,9 @@ impl DeficitRoundRobin {
     pub fn new(args: String) -> Result<Self, String> {
         const ERR_STR: &str = "Drr takes a single size argument in bytes: --limit-bytes={value}";
         let stripped: String = args.chars().skip_while(|x| *x == '-').collect();
-        let mut split = stripped.split(&['=', ' ', '-']);
+        let mut split = stripped.split(&['=']);
         match split.next() {
-            Some(key) if key.contains("bytes") => (),
+            Some(key) if key.contains("limit-bytes") => (),
             None | Some(_) => return Err(ERR_STR.to_string()),
         }
 
