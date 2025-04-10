@@ -197,7 +197,7 @@ impl WrapperPacketQueue {
 
 use hwfq::{scheduler::htb::ClassedTokenBucket, scheduler::Drr, Pkt, Scheduler};
 
-pub struct DeficitRoundRobin(Drr);
+pub struct DeficitRoundRobin(Drr<true>);
 
 impl std::fmt::Debug for DeficitRoundRobin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -220,7 +220,7 @@ impl DeficitRoundRobin {
             .ok_or_else(|| ERR_STR.to_string())?
             .parse()
             .map_err(|e| format!("{}: error parsing value as usize: {}", ERR_STR, e))?;
-        Ok(DeficitRoundRobin(Drr::new(limit_bytes)))
+        Ok(DeficitRoundRobin(Drr::<true>::new(limit_bytes)))
     }
 }
 

@@ -8,6 +8,6 @@ crate-type = ["staticlib"]
 
 [dependencies]
 cxx = "1.0"
-hwfq = { git = "https://github.com/akshayknarayan/hwfq", rev = "0713282", features = ["htb-argparse"] }
+hwfq = { git = "https://github.com/akshayknarayan/hwfq", rev = "901a4e7", features = ["htb-argparse"] }
 tracing-subscriber = "0.3"
 tracing = "0.1"
