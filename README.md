@@ -1,16 +1,33 @@
-mahimahi: a web performance measurement toolkit
+# Mahimahi
 
-# Dependencies
+A web performance measurement toolkit
 
-```
-sudo apt-get install autotools-dev autoconf libtool apache2 apache2-dev protobuf-compiler libprotobuf-dev libssl-dev xcb libxcb-composite0-dev libxcb-present-dev libcairo2-dev libpango1.0-dev
-```
+## Install
 
-# Install
+### Requirements
 
-```
-./autogen.sh && ./configure && make && sudo make install
-```
+On Ubuntu (at least), you need the following packages to install mahimahi:
+ * make
+ * autoconf
+ * libtool
+ * iproute2
+ * iptables
+ * dnsmasq
+ * apache2
+ * apache2-dev
+ * protobuf-compiler
+ * pkg-config
+ * libssl-dev
+ * libxcb-present-dev
+ * libpangomm-2.48-dev
+
+### Install
+
+Once all dependencies are met, you can install mahimahi by running:
+ * `./autogen.sh`
+ * `./configure`
+ * `make`
+ * `sudo make install`
 
 Note: mahimahi will conflict with tailscale if it is installed, because tailscale uses the same CG-NAT address space of `100.64.0.0`. This fork includes the configure flag `--enable-altaddr=yes`, which will use the `10.0.0.0` address space instead. To use:
 
