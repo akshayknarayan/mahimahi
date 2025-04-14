@@ -10,6 +10,9 @@ On Ubuntu (at least), you need the following packages to install mahimahi:
  * make
  * autoconf
  * libtool
+ * iproute2
+ * iptables
+ * dnsmasq
  * apache2
  * apache2-dev
  * protobuf-compiler
