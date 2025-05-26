@@ -197,7 +197,7 @@ impl WrapperPacketQueue {
 
 use hwfq::{scheduler::htb::ClassedTokenBucket, scheduler::Drr, Pkt, Scheduler};
 
-pub struct DeficitRoundRobin(Drr<true>);
+pub struct DeficitRoundRobin(Drr<true, std::fs::File>);
 
 impl std::fmt::Debug for DeficitRoundRobin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -207,11 +207,12 @@ impl std::fmt::Debug for DeficitRoundRobin {
 
 impl DeficitRoundRobin {
     pub fn new(args: String) -> Result<Self, String> {
-        const ERR_STR: &str = "Drr takes a single size argument in bytes: --limit-bytes={value}";
+        /*const ERR_STR: &str = "Drr can take two arguments: a size argument in bytes: --limit-bytes={value}, and a logger name";
         let stripped: String = args.chars().skip_while(|x| *x == '-').collect();
+        stripped = args.chars().skip_while(|x| *x == '-').collect(); // for --logger=
         let mut split = stripped.split(&['=']);
         match split.next() {
-            Some(key) if key.contains("limit-bytes") => (),
+            Some(key) if key.contains("limit-bytes") => () ,
             None | Some(_) => return Err(ERR_STR.to_string()),
         }
 
@@ -220,7 +221,11 @@ impl DeficitRoundRobin {
             .ok_or_else(|| ERR_STR.to_string())?
             .parse()
             .map_err(|e| format!("{}: error parsing value as usize: {}", ERR_STR, e))?;
-        Ok(DeficitRoundRobin(Drr::<true>::new(limit_bytes)))
+       */
+     Ok(DeficitRoundRobin(
+            args.parse().map_err(|e| format!("{}", e))?,
+        ))
+        
     }
 }
 
@@ -234,3 +239,5 @@ impl ClassTokenBucket {
         ))
     }
 }
+
+
