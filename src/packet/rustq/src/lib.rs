@@ -1,5 +1,5 @@
 use cxx::CxxString;
-use std::{collections::VecDeque, pin::Pin};
+use std::{collections::VecDeque, pin::Pin, time::Duration};
 
 #[cxx::bridge]
 mod ffi {
@@ -96,7 +96,7 @@ impl WrapperPacketQueue {
                 tracing::trace!(dport = ?p.dport(), "enqueueing packet");
                 match match &mut self.inner {
                     WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.enq(p),
-                    WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.enq(p),
+                    WrapperPacketQueueInner::DeficitRoundRobin(q) => {q.0.dbg(Duration::ZERO); q.0.enq(p)},
                 } {
                     Ok(_) => (),
                     Err(e) => match e.downcast() {
@@ -195,7 +195,8 @@ impl WrapperPacketQueue {
     }
 }
 
-use hwfq::{scheduler::htb::ClassedTokenBucket, scheduler::Drr, Pkt, Scheduler};
+use hwfq::{scheduler::htb::ClassedTokenBucket, scheduler::drr::Drr, Pkt, Scheduler};
+
 
 pub struct DeficitRoundRobin(Drr<true, std::fs::File>);
 
