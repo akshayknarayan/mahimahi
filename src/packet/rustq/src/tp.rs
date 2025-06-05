@@ -114,14 +114,17 @@ impl<L: std::io::Write> Scheduler for TrafficPolicer<L> {
 
     fn deq(&mut self) -> Result<Option<Pkt>, Report> {
         self.tb.accumulate();
-        if let Some(p) = self.queue.front() {
-            if p.len() <= self.tb.accum_bytes as usize {
+        match self.queue.front() {
+            None => Ok(None),
+            Some(p) if p.len() > self.tb.accum_bytes as usize => {
+                Err(Report::msg("Dequeue failed: insufficient tokens")) 
+            }
+            Some(p) => { 
                 self.tb.accum_bytes -= p.len() as f64;
                 let pkt = self.queue.pop_front().unwrap();
-                return Ok(Some(pkt));
-            } 
+                return Ok(Some(pkt)); 
+            }
         }
-        return Ok(None)
     }
 
     fn len_bytes(&self) -> usize {
