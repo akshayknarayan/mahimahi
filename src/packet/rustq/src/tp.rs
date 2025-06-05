@@ -180,25 +180,12 @@ mod tests {
         ).unwrap();
 
         let pkt = pkt_parse();
-        let pkt_size = pkt.len();
-
-        let mut _sent = 0;
         let mut dequeued = 0;
-        let mut _resets = 0;
 
         while start.elapsed().as_secs_f64() < duration_secs {
-            if tp.enq(pkt.clone()).is_ok() {
-                _sent += pkt_size;
-            }
-
-            match tp.deq() {
-                Ok(Some(pkt)) => {
-                    dequeued += pkt.len();
-                }
-                Ok(None) => {
-                    _resets += 1;
-                }
-                Err(_) => {}
+            let _ = tp.enq(pkt.clone());
+            if let Ok(Some(p)) = tp.deq() {
+                dequeued += p.len();
             }
         }
 

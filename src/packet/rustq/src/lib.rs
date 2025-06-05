@@ -1,6 +1,7 @@
 use cxx::CxxString;
 use std::{collections::VecDeque, pin::Pin};
 mod tp;
+use tp::TrafficPolicer;
 
 #[cxx::bridge]
 mod ffi {
@@ -208,7 +209,6 @@ impl WrapperPacketQueue {
 }
 
 use hwfq::{scheduler::htb::ClassedTokenBucket, scheduler::Drr, Pkt, Scheduler};
-use tp::TrafficPolicer;
 
 pub struct DeficitRoundRobin(Drr<true>);
 
