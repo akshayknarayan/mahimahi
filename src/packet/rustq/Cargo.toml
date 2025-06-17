@@ -8,6 +8,6 @@ crate-type = ["staticlib"]
 
 [dependencies]
 cxx = "1.0"
-hwfq = { path="/users/mahailem/hwfq", features = ["drr-argparse", "htb-argparse"] }
+hwfq = {git="https://github.com/akshayknarayan/hwfq/", branch= "logging_changes", features = ["drr-argparse", "htb-argparse"] }
 tracing-subscriber = "0.3"
 tracing = "0.1"

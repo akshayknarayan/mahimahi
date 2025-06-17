@@ -1,5 +1,5 @@
 use cxx::CxxString;
-use std::{collections::VecDeque, pin::Pin, time::Duration};
+use std::{collections::VecDeque, pin::Pin, time::Duration, time::Instant};
 
 #[cxx::bridge]
 mod ffi {
@@ -46,13 +46,13 @@ pub fn make_cxx_string(x: Vec<u8>, mut out: Pin<&mut CxxString>) {
 pub struct WrapperPacketQueue {
     bypass: VecDeque<MahimahiQueuedPacket>,
     inner: WrapperPacketQueueInner,
+     since_last: Option<Instant>,
 }
 
 pub enum WrapperPacketQueueInner {
     ClassTokenBucket(ClassTokenBucket),
     DeficitRoundRobin(DeficitRoundRobin),
 }
-
 // returning Err(_) from this function (and any function below) will throw an exception in C++ land.
 pub fn make_rust_queue(name: String, args: String) -> Result<Box<WrapperPacketQueue>, String> {
     if let Err(e) = tracing_subscriber::fmt().try_init() {
@@ -72,6 +72,7 @@ pub fn make_rust_queue(name: String, args: String) -> Result<Box<WrapperPacketQu
                 )
             }
         },
+        since_last: None,
     }))
 }
 
@@ -95,8 +96,29 @@ impl WrapperPacketQueue {
                 p.buf_mut().extend(tun_header.to_le_bytes());
                 tracing::trace!(dport = ?p.dport(), "enqueueing packet");
                 match match &mut self.inner {
-                    WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.enq(p),
-                    WrapperPacketQueueInner::DeficitRoundRobin(q) => {q.0.dbg(Duration::ZERO); q.0.enq(p)},
+                    WrapperPacketQueueInner::ClassTokenBucket(q) =>{
+                        // if let Some(last) = self.since_last{
+                        //    if last.elapsed().as_millis() > 500{
+                        //         q.0.dbg(last.elapsed());
+                        //         self.since_last = Some(Instant::now());
+                        //    }  
+                        // }else{
+                        //     self.since_last = Some(Instant::now());
+                        // }
+                            
+                        q.0.enq(p)
+                    } ,
+                    WrapperPacketQueueInner::DeficitRoundRobin(q) => {
+                        if let Some(last) = self.since_last{
+                           if last.elapsed().as_millis() > 300{
+                                q.0.dbg(last.elapsed());
+                                self.since_last = Some(Instant::now());
+                           }  
+                        }else{
+                            self.since_last = Some(Instant::now());
+                        }
+                        q.0.enq(p)
+                    } ,
                 } {
                     Ok(_) => (),
                     Err(e) => match e.downcast() {
@@ -126,12 +148,29 @@ impl WrapperPacketQueue {
         if let Some(p) = self.bypass.pop_front() {
             return Ok(p);
         }
-
         let mut p = match &mut self.inner {
             WrapperPacketQueueInner::ClassTokenBucket(q) => {
+                if let Some(last) = self.since_last{
+                    if last.elapsed().as_millis() > 1000{
+                        q.0.dbg(last.elapsed());
+                        self.since_last = Some(Instant::now());
+                    }  
+                }else{
+                    self.since_last = Some(Instant::now());
+                }
+                    
                 q.0.deq().map_err(|x| x.to_string())?.unwrap()
             }
             WrapperPacketQueueInner::DeficitRoundRobin(q) => {
+                if let Some(last) = self.since_last{
+                    if last.elapsed().as_millis() > 300{
+                        q.0.dbg(last.elapsed());
+                        self.since_last = Some(Instant::now());
+                   }  
+                }else{
+                    self.since_last = Some(Instant::now());
+                }
+                    
                 q.0.deq().map_err(|x| x.to_string())?.unwrap()
             }
         };
@@ -208,21 +247,6 @@ impl std::fmt::Debug for DeficitRoundRobin {
 
 impl DeficitRoundRobin {
     pub fn new(args: String) -> Result<Self, String> {
-        /*const ERR_STR: &str = "Drr can take two arguments: a size argument in bytes: --limit-bytes={value}, and a logger name";
-        let stripped: String = args.chars().skip_while(|x| *x == '-').collect();
-        stripped = args.chars().skip_while(|x| *x == '-').collect(); // for --logger=
-        let mut split = stripped.split(&['=']);
-        match split.next() {
-            Some(key) if key.contains("limit-bytes") => () ,
-            None | Some(_) => return Err(ERR_STR.to_string()),
-        }
-
-        let limit_bytes: usize = split
-            .next()
-            .ok_or_else(|| ERR_STR.to_string())?
-            .parse()
-            .map_err(|e| format!("{}: error parsing value as usize: {}", ERR_STR, e))?;
-       */
      Ok(DeficitRoundRobin(
             args.parse().map_err(|e| format!("{}", e))?,
         ))
