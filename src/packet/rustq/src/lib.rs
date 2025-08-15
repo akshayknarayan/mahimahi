@@ -1,7 +1,20 @@
 use cxx::CxxString;
 use std::{collections::VecDeque, pin::Pin};
 mod tp;
-use tp::TrafficPolicer;
+use tp::{TrafficPolicerCommonBucket, TrafficPolicerMultiBucket, TrafficPolicerHybrid};
+
+use std::fs::OpenOptions;
+use std::io::Write;
+
+pub fn log_to_file(msg: &str) {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("script/logs/token_log.csv")
+        .expect("could not open log file");
+
+    writeln!(file, "{}", msg).expect("could not write to log file");
+}
 
 #[cxx::bridge]
 mod ffi {
@@ -53,7 +66,9 @@ pub struct WrapperPacketQueue {
 pub enum WrapperPacketQueueInner {
     ClassTokenBucket(ClassTokenBucket),
     DeficitRoundRobin(DeficitRoundRobin),
-    TrafficPolicer(TrafficPolicer<std::io::Empty>),
+    TrafficPolicerCommonBucket(TrafficPolicerCommonBucket<std::io::Empty>),
+    TrafficPolicerMultiBucket(TrafficPolicerMultiBucket<std::io::Empty>),
+    TrafficPolicerHybrid(TrafficPolicerHybrid<std::io::Empty>)
 }
 
 // returning Err(_) from this function (and any function below) will throw an exception in C++ land.
@@ -68,11 +83,17 @@ pub fn make_rust_queue(name: String, args: String) -> Result<Box<WrapperPacketQu
         inner: match name.as_str() {
             "ctb" => WrapperPacketQueueInner::ClassTokenBucket(ClassTokenBucket::new(args)?),
             "drr" => WrapperPacketQueueInner::DeficitRoundRobin(DeficitRoundRobin::new(args)?),
-            "tp" => WrapperPacketQueueInner::TrafficPolicer(TrafficPolicer::new(args).map_err(|e| e.to_string())?),
+            "tpc" => WrapperPacketQueueInner::TrafficPolicerCommonBucket(
+                TrafficPolicerCommonBucket::new(args).map_err(|e| e.to_string())?),
+            "tpm" => WrapperPacketQueueInner::TrafficPolicerMultiBucket(
+                TrafficPolicerMultiBucket::new(args).map_err(|e| e.to_string())?),
+            "tph" => WrapperPacketQueueInner::TrafficPolicerHybrid(
+                TrafficPolicerHybrid::new(args).map_err(|e| e.to_string())?),
             _ => {
                 return Err(
-                    "Only ctb (ClassTokenBucket), drr (DeficitRoundRobin), and tp (TrafficPolicer) supported in Rust"
-                        .to_owned(),
+                    "Only ctb (ClassTokenBucket), drr (DeficitRoundRobin), tpc (TrafficPolicerCommonBucket), 
+                    tpm (TrafficPolicerMultiBucket), and tph (TrafficPolicerHybrid) supported in Rust"
+                    .to_owned(),
                 )
             }
         },
@@ -101,7 +122,9 @@ impl WrapperPacketQueue {
                 match match &mut self.inner {
                     WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.enq(p),
                     WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.enq(p),
-                    WrapperPacketQueueInner::TrafficPolicer(q) => q.enq(p),
+                    WrapperPacketQueueInner::TrafficPolicerCommonBucket(q) => q.enq(p),
+                    WrapperPacketQueueInner::TrafficPolicerMultiBucket(q) => q.enq(p),
+                    WrapperPacketQueueInner::TrafficPolicerHybrid(q) => q.enq(p),
                 } {
                     Ok(_) => (),
                     Err(e) => match e.downcast() {
@@ -139,7 +162,13 @@ impl WrapperPacketQueue {
             WrapperPacketQueueInner::DeficitRoundRobin(q) => {
                 q.0.deq().map_err(|x| x.to_string())?.unwrap()
             }
-            WrapperPacketQueueInner::TrafficPolicer(q) => {
+            WrapperPacketQueueInner::TrafficPolicerCommonBucket(q) => {
+                q.deq().map_err(|x| x.to_string())?.unwrap()
+            }
+            WrapperPacketQueueInner::TrafficPolicerMultiBucket(q) => {
+                q.deq().map_err(|x| x.to_string())?.unwrap()
+            }
+            WrapperPacketQueueInner::TrafficPolicerHybrid(q) => {
                 q.deq().map_err(|x| x.to_string())?.unwrap()
             }
         };
@@ -165,7 +194,9 @@ impl WrapperPacketQueue {
             && match &self.inner {
                 WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.is_empty(),
                 WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.is_empty(),
-                WrapperPacketQueueInner::TrafficPolicer(q) => q.is_empty(),
+                WrapperPacketQueueInner::TrafficPolicerCommonBucket(q) => q.is_empty(),
+                WrapperPacketQueueInner::TrafficPolicerMultiBucket(q) => q.is_empty(),
+                WrapperPacketQueueInner::TrafficPolicerHybrid(q) => q.is_empty(),
             }
     }
 
@@ -173,7 +204,9 @@ impl WrapperPacketQueue {
         match &mut self.inner {
             WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.set_max_len_bytes(bytes),
             WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.set_max_len_bytes(bytes),
-            WrapperPacketQueueInner::TrafficPolicer(q) => q.set_max_len_bytes(bytes),
+            WrapperPacketQueueInner::TrafficPolicerCommonBucket(q) => q.set_max_len_bytes(bytes),
+            WrapperPacketQueueInner::TrafficPolicerMultiBucket(q) => q.set_max_len_bytes(bytes),
+            WrapperPacketQueueInner::TrafficPolicerHybrid(q) => q.set_max_len_bytes(bytes),
         }
         .unwrap();
     }
@@ -185,7 +218,9 @@ impl WrapperPacketQueue {
         (match &self.inner {
             WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.len_bytes(),
             WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.len_bytes(),
-            WrapperPacketQueueInner::TrafficPolicer(q) => q.len_bytes(),
+            WrapperPacketQueueInner::TrafficPolicerCommonBucket(q) => q.len_bytes(),
+            WrapperPacketQueueInner::TrafficPolicerMultiBucket(q) => q.len_bytes(),
+            WrapperPacketQueueInner::TrafficPolicerHybrid(q) => q.len_bytes(),
         }) - overhead
     }
 
@@ -193,7 +228,9 @@ impl WrapperPacketQueue {
         match &self.inner {
             WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.len_packets(),
             WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.len_packets(),
-            WrapperPacketQueueInner::TrafficPolicer(q) => q.len_packets(),
+            WrapperPacketQueueInner::TrafficPolicerCommonBucket(q) => q.len_packets(),
+            WrapperPacketQueueInner::TrafficPolicerMultiBucket(q) => q.len_packets(),
+            WrapperPacketQueueInner::TrafficPolicerHybrid(q) => q.len_packets(),
         }
     }
 
@@ -201,7 +238,9 @@ impl WrapperPacketQueue {
         let s = match &self.inner {
             WrapperPacketQueueInner::ClassTokenBucket(q) => format!("{:?}", q),
             WrapperPacketQueueInner::DeficitRoundRobin(q) => format!("{:?}", q),
-            WrapperPacketQueueInner::TrafficPolicer(q) => format!("{:?}", q),
+            WrapperPacketQueueInner::TrafficPolicerCommonBucket(q) => format!("{:?}", q),
+            WrapperPacketQueueInner::TrafficPolicerMultiBucket(q) => format!("{:?}", q),
+            WrapperPacketQueueInner::TrafficPolicerHybrid(q) => format!("{:?}", q),
         };
 
         out.push_str(&s);
