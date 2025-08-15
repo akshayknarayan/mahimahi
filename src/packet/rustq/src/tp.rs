@@ -417,7 +417,7 @@ impl TrafficPolicerHybrid<std::io::Empty> {
         let ports = dports.ok_or_else(|| Report::msg(ERR_STR))?;
         let flows = num_flows.ok_or_else(|| Report::msg(ERR_STR))?;
         let default_rate = rate / (flows + 1);
-        let bucket_rate = (rate - default) / flows;
+        let bucket_rate = (rate - default_rate) / flows;
 
         let mut dport_to_idx = Vec::new();
         let mut buckets = Vec::new();
