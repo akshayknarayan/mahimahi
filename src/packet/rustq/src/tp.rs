@@ -4,7 +4,6 @@ use hwfq::{scheduler::htb::RateCounter, Pkt, Scheduler};
 use quanta::Instant;
 use std::collections::VecDeque;
 use std::time::Duration;
-use crate::log_to_file;
 
 pub struct Args {
     max_len_bytes: usize,
