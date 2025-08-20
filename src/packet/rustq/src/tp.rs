@@ -6,6 +6,71 @@ use std::collections::VecDeque;
 use std::time::Duration;
 use crate::log_to_file;
 
+pub struct Args {
+    max_len_bytes: usize,
+    rate_bytes_per_sec: usize,
+    num_flows: Option<usize>,
+    dports: Option<Vec<u16>>,
+}
+
+pub fn parse_args(args: String, err_str: &str) -> Result<Args, Report> {
+    let mut max_len_bytes: Option<usize> = None;
+    let mut rate_bytes_per_sec: Option<usize> = None;
+    let mut num_flows: Option<usize> = None;
+    let mut dports: Option<Vec<u16>> = None;
+
+    for arg in args.split_whitespace() {
+        let stripped: String = arg.chars().skip_while(|x| *x == '-').collect();
+        let mut split = stripped.split('=');
+
+        let key = split.next();
+        let value = split.next();
+
+        match (key, value) {
+            (Some(k), Some(v)) if k.contains("max_len_bytes") => {
+                max_len_bytes = Some(v.parse().map_err(|e| {
+                    Report::msg(format!("{}: error parsing max_len_bytes: {}", 
+                    err_str.to_string(), e))
+                })?)
+            }
+            (Some(k), Some(v)) if k == "rate_bytes_per_sec" => {
+                rate_bytes_per_sec = Some(v.parse().map_err(|e| {
+                    Report::msg(format!(
+                        "{}: error parsing rate_bytes_per_sec: {}",
+                        err_str.to_string(), e
+                    ))
+                })?);
+            }
+            (Some(k), Some(v)) if k == "num_flows" => {
+                num_flows = Some(v.parse().map_err(|e| {
+                    Report::msg(format!(
+                        "{}: error parsing num_flows: {}",
+                        err_str.to_string(), e
+                    ))
+                })?);
+            }
+            (Some(k), Some(v)) if k == "dports" => {
+                let parsed: Result<Vec<u16>, _> = v
+                    .split(',')
+                    .map(|s| s.parse::<u16>())
+                    .collect();
+                dports = Some(parsed.map_err(|e| {
+                    Report::msg(format!("{}: error parsing dports list: {}", 
+                    err_str.to_string(), e))
+                })?);
+            }
+            _ => return Err(Report::msg(err_str.to_string())),
+        }
+    }
+
+    Ok(Args {
+        max_len_bytes: max_len_bytes.ok_or_else(|| Report::msg(err_str.to_string()))?,
+        rate_bytes_per_sec: rate_bytes_per_sec.ok_or_else(|| Report::msg(err_str.to_string()))?,
+        num_flows,
+        dports
+    })
+}
+
 #[derive(Debug)]
 pub struct TokenBucket {
     rate_bytes_per_sec: usize,
@@ -64,42 +129,11 @@ impl<L: std::io::Write> TrafficPolicerCommonBucket<L> {
 
 impl TrafficPolicerCommonBucket<std::io::Empty> {
     pub fn new(args: String) -> Result<Self, Report> {
-        const ERR_STR: &str =
-            "TPC takes two arguments: --max_len_bytes={value}, --rate_bytes_per_sec={value}";
-        let mut max_len_bytes: Option<usize> = None;
-        let mut rate_bytes_per_sec: Option<usize> = None;
-
-        for arg in args.split_whitespace() {
-            let stripped: String = arg.chars().skip_while(|x| *x == '-').collect();
-            let mut split = stripped.split('=');
-
-            let key = split.next();
-            let value = split.next();
-
-            match (key, value) {
-                (Some(k), Some(v)) if k.contains("max_len_bytes") => {
-                    max_len_bytes = Some(v.parse().map_err(|e| {
-                        Report::msg(format!("{}: error parsing max_len_bytes: {}", ERR_STR, e))
-                    })?)
-                }
-                (Some(k), Some(v)) if k == "rate_bytes_per_sec" => {
-                    rate_bytes_per_sec = Some(v.parse().map_err(|e| {
-                        Report::msg(format!(
-                            "{}: error parsing rate_bytes_per_sec: {}",
-                            ERR_STR, e
-                        ))
-                    })?);
-                }
-                _ => return Err(Report::msg(ERR_STR)),
-            }
-        }
-
-        let max_len = max_len_bytes.ok_or_else(|| Report::msg(ERR_STR))?;
-        let rate = rate_bytes_per_sec.ok_or_else(|| Report::msg(ERR_STR))?;
-
+        let err_str = "TPC takes two arguments: --max_len_bytes={value}, --rate_bytes_per_sec={value}";
+        let parsed_args = parse_args(args, err_str)?;
         Ok(Self {
-            max_len_bytes: max_len,
-            tb: TokenBucket::new(rate),
+            max_len_bytes: parsed_args.max_len_bytes,
+            tb: TokenBucket::new(parsed_args.rate_bytes_per_sec),
             queue: Default::default(),
             ctr: RateCounter::new(None),
             logger: None,
@@ -137,14 +171,7 @@ impl<L: std::io::Write> Scheduler for TrafficPolicerCommonBucket<L> {
         self.tb.accumulate();
         // let timestamp = self.start_time.elapsed().as_secs_f64();
         // log_to_file(&format!("{:.3}, {}", timestamp, self.tb.accum_bytes));
-
-        match self.queue.front() {
-            None => Ok(None),
-            Some(_) => {
-                let pkt = self.queue.pop_front().unwrap();
-                return Ok(Some(pkt));
-            }
-        }
+        Ok(self.queue.pop_front())
     }
 
     fn len_bytes(&self) -> usize {
@@ -171,89 +198,40 @@ impl<L: std::io::Write> Scheduler for TrafficPolicerCommonBucket<L> {
 
 #[derive(Debug)]
 pub struct TrafficPolicerMultiBucket<L: std::io::Write> {
-   max_len_bytes: usize,
-   buckets: Vec<TokenBucket>,
-   dport_to_idx: Vec<(u16, usize)>,
-   queue: VecDeque<Pkt>,
-   ctr: RateCounter,
-   logger: Option<csv::Writer<L>>,
-   start_time: Instant,
+    max_len_bytes: usize,
+    buckets: Vec<TokenBucket>,
+    dport_to_idx: Vec<(u16, usize)>,
+    queue: VecDeque<Pkt>,
+    ctr: RateCounter,
+    logger: Option<csv::Writer<L>>,
+    start_time: Instant,
 }
 
 impl TrafficPolicerMultiBucket<std::io::Empty> {
-   pub fn new(args: String) -> Result<Self, Report> {
-       const ERR_STR: &str =
-           "TPM takes four arguments: --max_len_bytes={value} --rate_bytes_per_sec={value} --num_flows={value} --dports={list}";
-       let mut max_len_bytes: Option<usize> = None;
-       let mut rate_bytes_per_sec: Option<usize> = None;
-       let mut num_flows: Option<usize> = None;
-       let mut dports: Option<Vec<u16>> = None;
+    pub fn new(args: String) -> Result<Self, Report> {
+        let err_str = "TPM takes four arguments: --max_len_bytes={value} --rate_bytes_per_sec={value} --num_flows={value} --dports={list}";
+        let parsed_args = parse_args(args, err_str)?;
+        let num_flows = parsed_args.num_flows.ok_or_else(|| Report::msg(err_str.to_string()))?;
+        let dports = parsed_args.dports.ok_or_else(|| Report::msg(err_str.to_string()))?;
 
-       for arg in args.split_whitespace() {
-           let stripped: String = arg.chars().skip_while(|x| *x == '-').collect();
-           let mut split = stripped.split('=');
+        let bucket_rate = parsed_args.rate_bytes_per_sec / num_flows;
+        let mut dport_to_idx = Vec::new();
+        let mut buckets = Vec::new();
+        for p in dports {
+            dport_to_idx.push((p, buckets.len()));
+            buckets.push(TokenBucket::new(bucket_rate));
+        }
 
-           let key = split.next();
-           let value = split.next();
-
-           match (key, value) {
-               (Some(k), Some(v)) if k.contains("max_len_bytes") => {
-                   max_len_bytes = Some(v.parse().map_err(|e| {
-                       Report::msg(format!("{}: error parsing max_len_bytes: {}", ERR_STR, e))
-                   })?)
-               }
-               (Some(k), Some(v)) if k == "rate_bytes_per_sec" => {
-                   rate_bytes_per_sec = Some(v.parse().map_err(|e| {
-                       Report::msg(format!(
-                           "{}: error parsing rate_bytes_per_sec: {}",
-                           ERR_STR, e
-                       ))
-                   })?);
-               }
-               (Some(k), Some(v)) if k == "num_flows" => {
-                   num_flows = Some(v.parse().map_err(|e| {
-                       Report::msg(format!(
-                           "{}: error parsing num_flows: {}",
-                           ERR_STR, e
-                       ))
-                   })?);
-               }
-               (Some(k), Some(v)) if k == "dports" => {
-                   let parsed: Result<Vec<u16>, _> = v
-                       .split(',')
-                       .map(|s| s.parse::<u16>())
-                       .collect();
-                   dports = Some(parsed.map_err(|e| {
-                       Report::msg(format!("{}: error parsing dports list: {}", ERR_STR, e))
-                   })?);
-               }
-               _ => return Err(Report::msg(ERR_STR)),
-           }
-       }
-
-       let max_len = max_len_bytes.ok_or_else(|| Report::msg(ERR_STR))?;
-       let rate = rate_bytes_per_sec.ok_or_else(|| Report::msg(ERR_STR))?;
-       let ports = dports.ok_or_else(|| Report::msg(ERR_STR))?;
-       let flows = num_flows.ok_or_else(|| Report::msg(ERR_STR))?;
-       let bucket_rate = rate / flows;
-
-       let mut dport_to_idx = Vec::new();
-       let mut buckets = Vec::new();
-       for p in ports {
-           dport_to_idx.push((p, buckets.len()));
-           buckets.push(TokenBucket::new(bucket_rate));
-       }
-
-       Ok(Self {
-           max_len_bytes: max_len,
-           buckets: buckets,
-           dport_to_idx: dport_to_idx,
-           queue: Default::default(),
-           ctr: RateCounter::new(None),
-           logger: None,
-           start_time: Instant::now()
-       })
-   }
+        Ok(Self {
+            max_len_bytes: parsed_args.max_len_bytes,
+            buckets: buckets,
+            dport_to_idx: dport_to_idx,
+            queue: Default::default(),
+            ctr: RateCounter::new(None),
+            logger: None,
+            start_time: Instant::now()
+        })
+    }
 }
 
 impl<L: std::io::Write> TrafficPolicerMultiBucket<L> {
@@ -263,90 +241,83 @@ impl<L: std::io::Write> TrafficPolicerMultiBucket<L> {
 
    pub fn maybe_with_logger<W: std::io::Write>(self, w: Option<W>) -> TrafficPolicerMultiBucket<W> {
        TrafficPolicerMultiBucket {
-           max_len_bytes: self.max_len_bytes,
-           buckets: self.buckets,
-           dport_to_idx: self.dport_to_idx,
-           queue: self.queue,
-           ctr: self.ctr,
-           logger: w.map(|x| csv::Writer::from_writer(x)),
-           start_time: self.start_time
+            max_len_bytes: self.max_len_bytes,
+            buckets: self.buckets,
+            dport_to_idx: self.dport_to_idx,
+            queue: self.queue,
+            ctr: self.ctr,
+            logger: w.map(|x| csv::Writer::from_writer(x)),
+            start_time: self.start_time
        }
    }
 }
 
 impl<L: std::io::Write> Scheduler for TrafficPolicerMultiBucket<L> {
    fn enq(&mut self, p: Pkt) -> Result<(), Report> {
-       let idx;
-       if let Some((_, i)) = self.dport_to_idx.iter().find(|&&(x, _)| x == p.dport()) {
-           idx = Some(*i);
-       } else {
-           bail!(hwfq::Error::PacketDropped(p));
-       }
+        let idx;
+        if let Some((_, i)) = self.dport_to_idx.iter().find(|&&(x, _)| x == p.dport()) {
+            idx = Some(*i);
+        } else {
+            bail!(hwfq::Error::PacketDropped(p));
+        }
 
-       let queue_len = self.len_bytes();
+        let queue_len = self.len_bytes();
 
-       // let bucket_0 = &mut self.buckets[0];
-       // let timestamp = bucket_0.last_incr.duration_since(self.start_time).as_secs_f64();
-       // log_to_file(&format!("{:.3}, {}", timestamp, bucket_0.accum_bytes));
+        // let bucket_0 = &mut self.buckets[0];
+        // let timestamp = bucket_0.last_incr.duration_since(self.start_time).as_secs_f64();
+        // log_to_file(&format!("{:.3}, {}", timestamp, bucket_0.accum_bytes));
 
-       let bucket = &mut self.buckets[idx.unwrap()];
-       bucket.accumulate();
+        let bucket = &mut self.buckets[idx.unwrap()];
+        bucket.accumulate();
 
-       // let bucket_0 = &mut self.buckets[0];
-       // let timestamp = self.start_time.elapsed().as_secs_f64();
-       // log_to_file(&format!("{:.3}, {}", timestamp, bucket_0.accum_bytes));
-       // let bucket = &mut self.buckets[idx.unwrap()];
+        // let bucket_0 = &mut self.buckets[0];
+        // let timestamp = self.start_time.elapsed().as_secs_f64();
+        // log_to_file(&format!("{:.3}, {}", timestamp, bucket_0.accum_bytes));
+        // let bucket = &mut self.buckets[idx.unwrap()];
 
-       if p.len() > bucket.accum_bytes as usize
-           || p.len() + queue_len > self.max_len_bytes
-       {
-           bail!(hwfq::Error::PacketDropped(p));
-       }
-       bucket.accum_bytes -= p.len() as f64;
-       self.queue.push_back(p);
+        if p.len() > bucket.accum_bytes as usize
+            || p.len() + queue_len > self.max_len_bytes
+        {
+            bail!(hwfq::Error::PacketDropped(p));
+        }
+        bucket.accum_bytes -= p.len() as f64;
+        self.queue.push_back(p);
 
-       // let bucket_0 = &mut self.buckets[0];
-       // let timestamp = self.start_time.elapsed().as_secs_f64();
-       // log_to_file(&format!("{:.3}, {}", timestamp, bucket_0.accum_bytes));
+        // let bucket_0 = &mut self.buckets[0];
+        // let timestamp = self.start_time.elapsed().as_secs_f64();
+        // log_to_file(&format!("{:.3}, {}", timestamp, bucket_0.accum_bytes));
 
-       Ok(())
-   }
+        Ok(())
+    }
 
-   fn deq(&mut self) -> Result<Option<Pkt>, Report> {
-       // let bucket_0 = &mut self.buckets[0];
-       // bucket_0.accumulate();
-       // let timestamp = self.start_time.elapsed().as_secs_f64();
-       // log_to_file(&format!("{:.3}, {}", timestamp, bucket_0.accum_bytes));
+    fn deq(&mut self) -> Result<Option<Pkt>, Report> {
+        // let bucket_0 = &mut self.buckets[0];
+        // bucket_0.accumulate();
+        // let timestamp = self.start_time.elapsed().as_secs_f64();
+        // log_to_file(&format!("{:.3}, {}", timestamp, bucket_0.accum_bytes));
+        Ok(self.queue.pop_front())
+    }
 
-       match self.queue.front() {
-           None => Ok(None),
-           Some(_) => {
-               let pkt = self.queue.pop_front().unwrap();
-               return Ok(Some(pkt));
-           }
-       }
-   }
+    fn len_bytes(&self) -> usize {
+        self.queue.iter().map(|p| p.len()).sum()
+    }
 
-   fn len_bytes(&self) -> usize {
-       self.queue.iter().map(|p| p.len()).sum()
-   }
+    fn len_packets(&self) -> usize {
+        self.queue.len()
+    }
 
-   fn len_packets(&self) -> usize {
-       self.queue.len()
-   }
+    fn is_empty(&self) -> bool {
+        return self.queue.is_empty()
+    }
 
-   fn is_empty(&self) -> bool {
-       return self.queue.is_empty()
-   }
+    fn set_max_len_bytes(&mut self, bytes: usize) -> Result<(), Report> {
+        self.max_len_bytes = bytes;
+        Ok(())
+    }
 
-   fn set_max_len_bytes(&mut self, bytes: usize) -> Result<(), Report> {
-       self.max_len_bytes = bytes;
-       Ok(())
-   }
-
-   fn dbg(&mut self, epoch_dur: Duration) {
-       self.ctr.log(epoch_dur, self.logger.as_mut());
-   }
+    fn dbg(&mut self, epoch_dur: Duration) {
+        self.ctr.log(epoch_dur, self.logger.as_mut());
+    }
 }
 
 
@@ -362,73 +333,22 @@ pub struct TrafficPolicerHybrid<L: std::io::Write> {
 
 impl TrafficPolicerHybrid<std::io::Empty> {
     pub fn new(args: String) -> Result<Self, Report> {
-        const ERR_STR: &str =
-            "TPH takes four arguments: --max_len_bytes={value} --rate_bytes_per_sec={value} 
-            --num_flows={value} --dports={list}";
-        let mut max_len_bytes: Option<usize> = None;
-        let mut rate_bytes_per_sec: Option<usize> = None;
-        let mut num_flows: Option<usize> = None;
-        let mut dports: Option<Vec<u16>> = None;
+        let err_str = "TPH takes four arguments: --max_len_bytes={value} --rate_bytes_per_sec={value} --num_flows={value} --dports={list}";
+        let parsed_args = parse_args(args, err_str)?;
+        let num_flows = parsed_args.num_flows.ok_or_else(|| Report::msg(err_str.to_string()))?;
+        let dports = parsed_args.dports.ok_or_else(|| Report::msg(err_str.to_string()))?;
 
-        for arg in args.split_whitespace() {
-            let stripped: String = arg.chars().skip_while(|x| *x == '-').collect();
-            let mut split = stripped.split('=');
-
-            let key = split.next();
-            let value = split.next();
-
-            match (key, value) {
-                (Some(k), Some(v)) if k.contains("max_len_bytes") => {
-                    max_len_bytes = Some(v.parse().map_err(|e| {
-                        Report::msg(format!("{}: error parsing max_len_bytes: {}", ERR_STR, e))
-                    })?)
-                }
-                (Some(k), Some(v)) if k == "rate_bytes_per_sec" => {
-                    rate_bytes_per_sec = Some(v.parse().map_err(|e| {
-                        Report::msg(format!(
-                            "{}: error parsing rate_bytes_per_sec: {}",
-                            ERR_STR, e
-                        ))
-                    })?);
-                }
-                (Some(k), Some(v)) if k == "num_flows" => {
-                    num_flows = Some(v.parse().map_err(|e| {
-                        Report::msg(format!(
-                            "{}: error parsing num_flows: {}",
-                            ERR_STR, e
-                        ))
-                    })?);
-                }
-                (Some(k), Some(v)) if k == "dports" => {
-                    let parsed: Result<Vec<u16>, _> = v
-                        .split(',')
-                        .map(|s| s.parse::<u16>())
-                        .collect();
-                    dports = Some(parsed.map_err(|e| {
-                        Report::msg(format!("{}: error parsing dports list: {}", ERR_STR, e))
-                    })?);
-                }
-                _ => return Err(Report::msg(ERR_STR)),
-            }
-        }
-
-        let max_len = max_len_bytes.ok_or_else(|| Report::msg(ERR_STR))?;
-        let rate = rate_bytes_per_sec.ok_or_else(|| Report::msg(ERR_STR))?;
-        let ports = dports.ok_or_else(|| Report::msg(ERR_STR))?;
-        let flows = num_flows.ok_or_else(|| Report::msg(ERR_STR))?;
-        let default_rate = rate / (flows + 1);
-        let bucket_rate = (rate - default_rate) / flows;
-
+        let bucket_rate = (parsed_args.rate_bytes_per_sec) / (num_flows + 1);
         let mut dport_to_idx = Vec::new();
         let mut buckets = Vec::new();
-        buckets.push(TokenBucket::new(default_rate));
-        for p in ports {
+        buckets.push(TokenBucket::new(bucket_rate));
+        for p in dports {
             dport_to_idx.push((p, buckets.len()));
             buckets.push(TokenBucket::new(bucket_rate));
         }
 
         Ok(Self {
-            max_len_bytes: max_len,
+            max_len_bytes: parsed_args.max_len_bytes,
             buckets: buckets,
             dport_to_idx: dport_to_idx,
             queue: Default::default(),
@@ -489,13 +409,7 @@ impl<L: std::io::Write> Scheduler for TrafficPolicerHybrid<L> {
     }
 
     fn deq(&mut self) -> Result<Option<Pkt>, Report> {
-        match self.queue.front() {
-            None => Ok(None),
-            Some(_) => {
-                let pkt = self.queue.pop_front().unwrap();
-                return Ok(Some(pkt));
-            }
-        }
+        Ok(self.queue.pop_front())
     }
 
     fn len_bytes(&self) -> usize {
