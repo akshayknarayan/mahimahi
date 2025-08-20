@@ -1,5 +1,5 @@
 use cxx::CxxString;
-use std::{collections::VecDeque, pin::Pin};
+use std::{collections::VecDeque, pin::Pin, time::{Instant, Duration},};
 mod tp;
 use tp::TrafficPolicer;
 
@@ -48,6 +48,7 @@ pub fn make_cxx_string(x: Vec<u8>, mut out: Pin<&mut CxxString>) {
 pub struct WrapperPacketQueue {
     bypass: VecDeque<MahimahiQueuedPacket>,
     inner: WrapperPacketQueueInner,
+    last_enq: Option<Instant>,
 }
 
 pub enum WrapperPacketQueueInner {
@@ -76,6 +77,7 @@ pub fn make_rust_queue(name: String, args: String) -> Result<Box<WrapperPacketQu
                 )
             }
         },
+        last_enq:Some(Instant::now())
     }))
 }
 
@@ -100,7 +102,20 @@ impl WrapperPacketQueue {
                 tracing::trace!(dport = ?p.dport(), "enqueueing packet");
                 match match &mut self.inner {
                     WrapperPacketQueueInner::ClassTokenBucket(q) => q.0.enq(p),
-                    WrapperPacketQueueInner::DeficitRoundRobin(q) => q.0.enq(p),
+                    WrapperPacketQueueInner::DeficitRoundRobin(q) => {
+                        match self.last_enq {
+                            None => {self.last_enq = Some(Instant::now());}, 
+                            Some(last_enq) => {
+                                if (Instant::now().duration_since(last_enq) > Duration::from_millis(500)){
+                                    q.0.dbg(Duration::ZERO);
+                                    self.last_enq = Some(Instant::now());
+                                }
+                            }
+                        };
+                        
+                        q.0.enq(p)
+                    
+                    },
                     WrapperPacketQueueInner::TrafficPolicer(q) => q.enq(p),
                 } {
                     Ok(_) => (),
@@ -208,9 +223,9 @@ impl WrapperPacketQueue {
     }
 }
 
-use hwfq::{scheduler::htb::ClassedTokenBucket, scheduler::Drr, Pkt, Scheduler};
+use hwfq::{scheduler::htb::ClassedTokenBucket, scheduler::drr::Drr, Pkt, Scheduler};
 
-pub struct DeficitRoundRobin(Drr<true>);
+pub struct DeficitRoundRobin(Drr<true, std::fs::File>);
 
 impl std::fmt::Debug for DeficitRoundRobin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -220,20 +235,7 @@ impl std::fmt::Debug for DeficitRoundRobin {
 
 impl DeficitRoundRobin {
     pub fn new(args: String) -> Result<Self, String> {
-        const ERR_STR: &str = "Drr takes a single size argument in bytes: --limit-bytes={value}";
-        let stripped: String = args.chars().skip_while(|x| *x == '-').collect();
-        let mut split = stripped.split(&['=']);
-        match split.next() {
-            Some(key) if key.contains("limit-bytes") => (),
-            None | Some(_) => return Err(ERR_STR.to_string()),
-        }
-
-        let limit_bytes: usize = split
-            .next()
-            .ok_or_else(|| ERR_STR.to_string())?
-            .parse()
-            .map_err(|e| format!("{}: error parsing value as usize: {}", ERR_STR, e))?;
-        Ok(DeficitRoundRobin(Drr::<true>::new(limit_bytes)))
+        Ok(DeficitRoundRobin(args.parse().map_err(|e| format!("{}", e))?,))
     }
 }
 
