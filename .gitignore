@@ -19,6 +19,7 @@ Makefile.in
 /config.guess
 /config.sub
 /configure
+/configure~
 /depcomp
 /install-sh
 /missing
@@ -26,6 +27,7 @@ Makefile.in
 /stamp-h1
 /libtool
 /ltmain.sh
+
 
 /compile
 /src/protobufs/http_record.pb.cc
