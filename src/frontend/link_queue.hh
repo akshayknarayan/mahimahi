@@ -46,7 +46,8 @@ private:
     void record_arrival( const uint64_t arrival_time, const size_t pkt_size, 
 				                 uint16_t src, uint16_t dst, unsigned int queue_bytes, 
 												 unsigned int queue_packets );
-    void record_drop( const uint64_t time, const size_t pkts_dropped, const size_t bytes_dropped );
+    void record_drop( const uint64_t time, const size_t pkts_dropped, const size_t bytes_dropped, 
+                                uint16_t src, uint16_t dst );
     void record_departure_opportunity( void );
     void record_departure( const uint64_t departure_time, const QueuedPacket & packet );
 

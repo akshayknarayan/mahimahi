@@ -120,11 +120,12 @@ void LinkQueue::record_arrival( const uint64_t arrival_time, const size_t pkt_si
     }
 }
 
-void LinkQueue::record_drop( const uint64_t time, const size_t pkts_dropped, const size_t bytes_dropped)
+void LinkQueue::record_drop( const uint64_t time, const size_t pkts_dropped, const size_t bytes_dropped, 
+                                uint16_t src, uint16_t dst )
 {
     /* log it */
     if ( log_ ) {
-        *log_ << time << " d " << pkts_dropped << " " << bytes_dropped << endl;
+        *log_ << time << " d " << pkts_dropped << " " << bytes_dropped << " " << src << ":" << dst << endl;
     }
 }
 
@@ -197,11 +198,11 @@ void LinkQueue::read_packet( const string & contents )
 
     assert( packet_queue_->size_packets() <= packets_before + 1 );
     assert( packet_queue_->size_bytes() <= bytes_before + contents.size() );
-    
+
     unsigned int missing_packets = packets_before + 1 - packet_queue_->size_packets();
     unsigned int missing_bytes = bytes_before + contents.size() - packet_queue_->size_bytes();
     if ( missing_packets > 0 || missing_bytes > 0 ) {
-        record_drop( now, missing_packets, missing_bytes );
+        record_drop( now, missing_packets, missing_bytes, src, dst );
     }
 }
 
